@@ -1,0 +1,4 @@
+node_modules/
+
+# OpenAPI Sync generated files
+./lib/generated

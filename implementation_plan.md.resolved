@@ -1,0 +1,396 @@
+# WellFinanced — Financial Advisor PWA
+
+A mobile-first Progressive Web App built with **Next.js App Router + Bun**, integrating with the existing FastAPI backend with swagger .json endpoint at `https://kamarshalaby0--wellfinanced-fastapi-app.modal.run/api/v1/openapi.json`.
+
+## Key Decisions & Constraints
+
+| Decision | Choice |
+|---|---|
+| Runtime | Bun |
+| Framework | Next.js 15 (App Router) |
+| PWA | Serwist (`@serwist/next`) — modern Workbox successor built for Next.js |
+| Charts | Chart.js + `react-chartjs-2` |
+| AI Chat | `@ai-sdk/react` `useChat()` → Next.js proxy route → backend `/api/chat` |
+| API Codegen | `openapi-sync` — generates TS types, SWR hooks, and endpoint constants from the live OpenAPI spec |
+| Styling | Vanilla CSS with CSS custom properties (design tokens) |
+| Typography | Google Fonts — Inter (body) + DM Sans (headings) |
+| Auth | **Skipped for now** — single-user demo mode |
+| Currency | EGP only, with an extensible formatting utility |
+| Navigation | Bottom navbar (5 items) — mobile-first |
+
+---
+
+## User Review Required
+
+> [!IMPORTANT]
+> **Bottom Navigation Structure** — I'm proposing 5 bottom nav items (the mobile standard). Please confirm or adjust:
+>
+> | Position | Icon | Label | Destination |
+> |----------|------|-------|-------------|
+> | 1 | 🏠 | Home | Dashboard (charts overview) |
+> | 2 | 💰 | Money | Combined inflows + outflows feed |
+> | 3 | 🤖 | Advisor | AI Chat (centered, prominent) |
+> | 4 | 🏦 | Accounts | Accounts list |
+> | 5 | ☰ | More | Counterparties, Flows, Installments, Schedules, Assets, Settings |
+
+> [!IMPORTANT]
+> **Dashboard Charts** — You said to ask about this when we get there. For the initial build I'll scaffold the dashboard with Chart.js but leave chart types as **placeholder slots** until you specify exactly what stats you want. Is this acceptable, or would you like to specify the dashboard charts now?
+
+> [!IMPORTANT]
+> **AI Chat Proxy Route** — The Next.js app will have a route at `app/api/chat/route.ts` that proxies requests to your backend's `/api/chat` endpoint. This avoids CORS issues and keeps your backend URL configurable via env vars. The `useChat()` hook will send to `/api/chat` (the Next.js route), which forwards to your backend. Does this approach work for you?
+
+> [!IMPORTANT]
+> **Chat Customization Options** — You mentioned users can specify "additional options to customize & personalize response." What kind of options do you have in mind? Examples:
+> - Risk tolerance selector (conservative / moderate / aggressive)
+> - Context selector (budgeting / investing / debt management)
+> - Tone preference (formal / casual)
+> - Or should the options panel just be a generic key-value form?
+>
+> I'll build the chat UI with an expandable options panel, but need to know what fields to include.
+
+---
+
+## Open Questions
+
+None — all critical questions are captured in the review section above.
+
+---
+
+## Proposed Changes
+
+### Phase 0: OpenAPI Sync Bootstrap
+
+Before any application code is written, run `openapi-sync` once against the live backend to generate the complete typed API layer.
+
+1. **Install** `openapi-sync` as a dev dependency: `bun add -D openapi-sync`
+2. **Create** `openapi.sync.ts` (see Phase 1 → [openapi.sync.ts](#new-openapitsyncts) below)
+3. **Run** `bun run api:sync:once` — this fetches the backend OpenAPI JSON and emits:
+   - `lib/generated/wellfinanced/types.ts` — all TypeScript interfaces & enums
+   - `lib/generated/wellfinanced/endpoints.ts` — typed URL builders
+   - `lib/generated/wellfinanced/hooks.ts` — SWR hooks for every endpoint
+   - `lib/generated/wellfinanced/clients.ts` — pre-configured base fetch client
+4. **Commit** the generated files so the rest of the team can start immediately without running the sync
+5. **Add** `.gitignore` rule to **not** ignore `lib/generated/` (generated files are intentionally committed)
+
+> [!NOTE]
+> The `refetchInterval: 30_000` setting in `openapi.sync.ts` means the watcher auto-regenerates when the backend schema changes during development. No manual re-runs needed.
+
+---
+
+### Phase 1: Project Foundation
+
+This phase sets up the entire project scaffold, design system, and infrastructure. No individual page content yet.
+
+---
+
+#### [NEW] Project Initialization
+
+```
+d:\Downloads\selected-project\
+├── app/
+│   ├── layout.tsx                    # Root layout: fonts, meta, bottom nav shell
+│   ├── page.tsx                      # Dashboard (home)
+│   ├── manifest.ts                   # PWA manifest (Next.js built-in API)
+│   ├── globals.css                   # Design tokens + global resets
+│   ├── chat/
+│   │   └── page.tsx                  # AI Advisor chat
+│   ├── accounts/
+│   │   ├── page.tsx                  # Accounts list
+│   │   └── [id]/page.tsx             # Account detail
+│   ├── money/
+│   │   └── page.tsx                  # Inflows + outflows combined feed
+│   ├── inflows/
+│   │   ├── page.tsx                  # Inflows list
+│   │   └── [id]/page.tsx             # Inflow detail
+│   ├── outflows/
+│   │   ├── page.tsx                  # Outflows list
+│   │   └── [id]/page.tsx             # Outflow detail
+│   ├── counterparties/
+│   │   ├── page.tsx                  # Counterparties list
+│   │   └── [id]/page.tsx             # Counterparty detail
+│   ├── flows/
+│   │   ├── page.tsx                  # Financial flows list
+│   │   └── [id]/page.tsx             # Flow detail
+│   ├── installments/
+│   │   ├── page.tsx                  # Installments list
+│   │   └── [id]/page.tsx             # Installment detail
+│   ├── schedules/
+│   │   ├── page.tsx                  # Schedules list
+│   │   └── [id]/page.tsx             # Schedule detail
+│   ├── assets/
+│   │   ├── page.tsx                  # Assets list
+│   │   └── [id]/page.tsx             # Asset detail
+│   └── api/
+│       └── chat/
+│           └── route.ts              # Proxy to backend AI chat
+├── components/
+│   ├── layout/
+│   │   ├── BottomNav.tsx             # Bottom navigation bar
+│   │   ├── PageHeader.tsx            # Reusable page header
+│   │   └── MobileShell.tsx           # Mobile app shell wrapper
+│   ├── ui/
+│   │   ├── Card.tsx                  # Card component
+│   │   ├── Button.tsx                # Button component
+│   │   ├── Input.tsx                 # Input component
+│   │   ├── Modal.tsx                 # Bottom sheet / modal
+│   │   ├── Badge.tsx                 # Status badges
+│   │   ├── Skeleton.tsx              # Loading skeleton
+│   │   └── EmptyState.tsx            # Empty state placeholder
+│   ├── charts/
+│   │   └── ChartWrapper.tsx          # Chart.js wrapper with responsive config
+│   └── chat/
+│       ├── ChatMessages.tsx          # Message list with streaming support
+│       ├── ChatInput.tsx             # Input bar with options toggle
+│       └── ChatOptions.tsx           # Expandable options panel
+├── lib/
+│   ├── generated/                    # ⚠️ AUTO-GENERATED — do not edit by hand
+│   │   └── wellfinanced/             # Named after the API key in openapi.sync.ts
+│   │       ├── types.ts              # All TypeScript interfaces (entities, enums, DTOs)
+│   │       ├── endpoints.ts          # Typed endpoint URL builders
+│   │       ├── hooks.ts              # SWR hooks (useGetAccounts, useGetAccountById, …)
+│   │       └── clients.ts            # Base fetch client configured by openapi-sync
+│   ├── hooks/
+│   │   └── useApi.ts                 # Thin re-export / helper shims over generated hooks
+│   └── utils/
+│       ├── currency.ts               # EGP formatting (extensible for future currencies)
+│       └── dates.ts                  # Date formatting helpers
+├── public/
+│   ├── icons/                        # PWA icons (192x192, 512x512, maskable)
+│   └── sw.js                         # Serwist service worker entry (auto-generated)
+├── openapi.sync.ts                   # openapi-sync configuration
+├── next.config.ts                    # Next.js config with Serwist plugin
+├── package.json
+├── tsconfig.json
+├── .env.local.example                # Environment variable template
+└── README.md
+```
+
+---
+
+#### [NEW] [globals.css](file:///d:/Downloads/selected-project/app/globals.css)
+
+Design system with CSS custom properties:
+
+- **Color palette**: Dark theme with emerald/teal accent (financial trust aesthetic)
+  - `--bg-primary: hsl(220, 20%, 8%)` — deep dark background
+  - `--bg-card: hsl(220, 18%, 12%)` — card surfaces
+  - `--bg-elevated: hsl(220, 16%, 16%)` — elevated surfaces
+  - `--accent: hsl(160, 70%, 45%)` — emerald green (money/growth)
+  - `--accent-glow: hsl(160, 70%, 45%, 0.15)` — accent glow for effects
+  - `--danger: hsl(0, 72%, 56%)` — outflows/errors
+  - `--warning: hsl(38, 92%, 55%)` — pending states
+  - `--text-primary`, `--text-secondary`, `--text-muted`
+- **Spacing scale**: 4px base (`--space-1` through `--space-12`)
+- **Border radius**: `--radius-sm`, `--radius-md`, `--radius-lg`, `--radius-full`
+- **Shadows**: Layered shadows for depth
+- **Transitions**: `--transition-fast`, `--transition-normal`
+- **Safe areas**: `env(safe-area-inset-bottom)` for bottom nav on notched devices
+- **Typography**: Font size scale using clamp() for fluid responsive sizing
+
+---
+
+#### [NEW] [layout.tsx](file:///d:/Downloads/selected-project/app/layout.tsx)
+
+Root layout responsibilities:
+- Google Fonts loading (Inter + DM Sans) via `next/font`
+- PWA meta tags (`theme-color`, `apple-mobile-web-app-capable`, viewport)
+- `<BottomNav />` rendered at root level
+- Main content area with bottom padding for nav clearance
+- CSS class application from design tokens
+
+---
+
+#### [NEW] [manifest.ts](file:///d:/Downloads/selected-project/app/manifest.ts)
+
+Using Next.js built-in Metadata API:
+- `name`: "WellFinanced"
+- `short_name`: "WellFinanced"
+- `display`: "standalone"
+- `orientation`: "portrait"
+- `theme_color` / `background_color` matching dark theme
+- Icons: 192x192, 512x512, maskable variants
+- `start_url`: "/"
+- `scope`: "/"
+
+---
+
+#### [NEW] [BottomNav.tsx](file:///d:/Downloads/selected-project/components/layout/BottomNav.tsx)
+
+Mobile bottom navigation:
+- 5 items with icon + label
+- Active state with accent color + subtle indicator
+- Smooth icon transitions on tap
+- Fixed to bottom with `safe-area-inset-bottom` padding
+- Glassmorphism background (`backdrop-filter: blur`)
+- Hides on scroll-down, reveals on scroll-up (optional, will ask)
+- Uses `next/link` with `usePathname()` for active state detection
+
+---
+
+#### [NEW] [openapi.sync.ts](file:///d:/Downloads/selected-project/openapi.sync.ts)
+
+`openapi-sync` configuration file — the single source of truth for all API codegen:
+
+```ts
+import type { IConfig } from 'openapi-sync/types';
+
+const config: IConfig = {
+  // In dev, poll every 30 s so types stay fresh as the backend evolves.
+  // Set to 0 in CI / production to disable auto-fetch.
+  refetchInterval: process.env.NODE_ENV === 'development' ? 30_000 : 0,
+
+  // Output directory — committed to git (reviewed like any other generated code)
+  folder: './lib/generated',
+
+  api: {
+    wellfinanced:
+      'https://kamarshalaby0--wellfinanced-fastapi-app.modal.run/api/v1/openapi.json',
+  },
+
+  // SWR hooks — aligned with the existing useApi.ts data-fetching pattern
+  clientGeneration: {
+    type: 'swr',
+    baseURL: process.env.NEXT_PUBLIC_API_URL ??
+      'https://kamarshalaby0--wellfinanced-fastapi-app.modal.run',
+  },
+
+  // Split generated files by OpenAPI tag → one sub-folder per resource
+  folderSplit: { byTags: true },
+
+  // Prefix every interface with `I` for instant visual distinction
+  types: { name: { prefix: 'I', useOperationId: true } },
+
+  // Exclude internal / docs routes from the generated client
+  endpoints: {
+    exclude: { tags: ['docs', 'redoc', 'openapi'] },
+  },
+};
+
+export default config;
+```
+
+**What gets generated** (inside `lib/generated/wellfinanced/`):
+
+| File | Contents |
+|---|---|
+| `types.ts` | All TypeScript interfaces — `IAccount`, `IInflow`, `IOutflow`, enums, DTOs, pagination wrappers |
+| `endpoints.ts` | Typed URL builders: `getAccounts()`, `getAccountById(id)`, … |
+| `hooks.ts` | SWR hooks: `useGetAccounts()`, `useGetAccountById(id)`, `useCreateAccount()`, … |
+| `clients.ts` | Base fetch client pre-configured with `baseURL` and response-envelope unwrapping |
+
+**NPM scripts** added to `package.json`:
+
+```json
+"scripts": {
+  "api:sync": "openapi-sync",
+  "api:sync:once": "openapi-sync --no-watch"
+}
+```
+
+Run `bun run api:sync:once` once during Phase 0 to bootstrap the generated files, then the watcher keeps them current during development.
+
+---
+
+#### [KEPT] Base client customisation in [useApi.ts](file:///d:/Downloads/selected-project/lib/hooks/useApi.ts)
+
+The generated `clients.ts` handles low-level fetch and envelope unwrapping automatically. `useApi.ts` becomes a **thin shim** that:
+- Re-exports the generated SWR hooks for convenience (`export * from '../generated/wellfinanced/hooks'`)
+- Adds any app-specific helpers (e.g. pagination cursor management, optimistic updates)
+- Injects the auth header once authentication is added (single place to update)
+
+---
+
+#### [NEW] [currency.ts](file:///d:/Downloads/selected-project/lib/utils/currency.ts)
+
+Extensible currency formatter:
+- `formatCurrency(amount: string | number, currency: Currency = 'EGP'): string`
+- Proper Arabic locale number formatting with `Intl.NumberFormat`
+- Shows "EGP" prefix or "ج.م" based on locale
+- Designed so adding new currencies is just adding to the enum + format map
+
+---
+
+### Phase 2: Core Pages
+
+#### [NEW] [page.tsx](file:///d:/Downloads/selected-project/app/page.tsx) — Dashboard
+
+- Page header: "WellFinanced" with greeting
+- Chart.js powered statistics cards (specific charts TBD per user's direction)
+- Quick summary cards: total balance, monthly inflow, monthly outflow, net change
+- Chart slots prepared with `<ChartWrapper>` component
+- Pull-to-refresh pattern (mobile UX)
+- Skeleton loading states
+
+#### [NEW] [chat/page.tsx](file:///d:/Downloads/selected-project/app/chat/page.tsx) — AI Advisor
+
+- Full-height chat interface (no bottom nav overlap, nav hidden on this page or reduced)
+- `useChat()` from `@ai-sdk/react` pointing to `/api/chat`
+- Message bubbles with streaming text animation
+- Expandable options panel (slides up from input area)
+- Chat input bar fixed to bottom with send button
+- Welcome message / suggested prompts on empty state
+- Message role styling (user vs assistant)
+
+#### [NEW] [api/chat/route.ts](file:///d:/Downloads/selected-project/app/api/chat/route.ts)
+
+Proxy route handler:
+- Receives `useChat()` POST requests
+- Forwards to `${BACKEND_URL}/api/chat` with stream-protocol headers
+- Passes through the SSE/streaming response
+- Adds any custom options from the request body
+
+---
+
+### Phase 3: Entity Pages (Iterative)
+
+> Each page will be designed individually per user's specifications. Initial scaffold includes placeholder pages with consistent layout + empty states.
+
+- `/accounts` — Account management
+- `/money` — Combined inflows/outflows feed
+- `/counterparties` — Counterparty management  
+- `/flows` — Financial flow management
+- `/installments` — Installment tracking
+- `/schedules` — Schedule management
+- `/assets` — Asset portfolio
+
+Each entity page will follow a consistent pattern:
+- List view with cards
+- Detail view via `[id]` route
+- Create/edit via bottom sheet modals
+- Delete with confirmation
+- Skeleton loading states
+
+---
+
+### Phase 4: PWA Configuration
+
+#### [NEW] [next.config.ts](file:///d:/Downloads/selected-project/next.config.ts)
+
+- Serwist plugin integration for service worker generation
+- Runtime caching strategies:
+  - API calls: `NetworkFirst` (fresh data, offline fallback)
+  - Static assets: `CacheFirst`
+  - Pages: `StaleWhileRevalidate`
+- Image optimization config
+
+#### PWA Icons
+
+- Generated using the generate_image tool
+- 192x192, 512x512, and maskable variants
+- Emerald/dark theme aesthetic matching the app
+
+---
+
+## Verification Plan
+
+### Automated Tests
+1. `bun run build` — verify production build compiles without errors
+2. `bun run dev` — verify dev server starts and all routes are accessible
+3. Browser test: navigate to each page, verify no console errors
+
+### Manual Verification
+1. **PWA Install**: Open in Chrome DevTools → Application tab → verify manifest loads, service worker registers, and "Install" prompt appears
+2. **Mobile Responsiveness**: Test at 375px (iPhone SE), 390px (iPhone 14), 412px (Pixel) widths
+3. **Chart Rendering**: Verify Chart.js initializes and renders on dashboard
+4. **Chat Streaming**: Verify `useChat()` sends requests to proxy route and handles streaming responses
+5. **API Integration**: Verify data loads from backend for at least one entity (accounts)
